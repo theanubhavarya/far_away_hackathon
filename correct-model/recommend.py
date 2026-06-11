@@ -117,11 +117,21 @@ class RouteRecommender:
             cdf = pd.read_csv(cab_stats_path)
             self.city_cab_stats = cdf.set_index('City').to_dict('index')
         else:
-            # Fallback: hardcoded approximate rates if CSV missing
             self.city_cab_stats = {
                 'Delhi':     {'price_per_km': 17.72, 'min_per_km': 4.0},
-                'Bangalore': {'price_per_km': 65.83, 'min_per_km': 5.0},
+                'Bangalore': {'price_per_km': 20.00, 'min_per_km': 4.0},
             }
+
+        # ── Manual rate overrides (applied after dataset loading) ────────────
+        # These override the auto-computed per-km rates from the dataset.
+        CAB_RATE_OVERRIDES = {
+            'Bangalore': {'price_per_km': 20.0},   # set to Rs.20/km
+        }
+        for city, overrides in CAB_RATE_OVERRIDES.items():
+            if city not in self.city_cab_stats:
+                self.city_cab_stats[city] = {'price_per_km': 20.0, 'min_per_km': 4.0}
+            self.city_cab_stats[city].update(overrides)
+
 
         # ── Load PyTorch model ──────────────────────────────────────────────
         num_transport_types = len(self.encoders['Transport_Type'].classes_)
