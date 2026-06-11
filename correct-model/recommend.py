@@ -111,6 +111,18 @@ class RouteRecommender:
         else:
             self.transport_stats = {}
 
+        # ── Load city-specific cab pricing from actual Uber/Ola dataset ────────
+        cab_stats_path = os.path.join(self.artifacts_dir, 'city_cab_stats.csv')
+        if os.path.exists(cab_stats_path):
+            cdf = pd.read_csv(cab_stats_path)
+            self.city_cab_stats = cdf.set_index('City').to_dict('index')
+        else:
+            # Fallback: hardcoded approximate rates if CSV missing
+            self.city_cab_stats = {
+                'Delhi':     {'price_per_km': 17.72, 'min_per_km': 4.0},
+                'Bangalore': {'price_per_km': 65.83, 'min_per_km': 5.0},
+            }
+
         # ── Load PyTorch model ──────────────────────────────────────────────
         num_transport_types = len(self.encoders['Transport_Type'].classes_)
         num_modes           = len(self.encoders['Mode'].classes_)
@@ -248,16 +260,37 @@ class RouteRecommender:
     def _build_leg(self, trans_type, mode, source, dest, date_obj, distance_est=None):
         """
         Build a single route leg.
-        - Price & Duration come from the ACTUAL DATASET via route_lookup.csv.
-        - Comfort comes from the DL model (blended with rule-based map).
-        - Cabs are estimated from distance since they are point-to-point intra-city.
+        - Intercity (Flight/Train/Bus): Price & Duration from dataset route_lookup,
+          then ground-truth table, then type-level fallback.
+        - Cab: try exact route match from dataset first (intra-city area pairs),
+          then use REAL per-km rate from the city's Uber/Ola dataset.
         """
         if trans_type == 'Cab':
-            # Cabs: use distance-based real pricing (~Rs.12/km, ~4 min/km city traffic)
-            if distance_est is None:
-                distance_est = 18
-            price    = distance_est * 12
-            duration = distance_est * 4
+            # Step 1: try exact area-to-area match from route_lookup (dataset values)
+            exact = self._route_stats('Cab', source, dest)
+            if exact['source'] == 'dataset_exact':
+                price    = exact['price']
+                duration = exact['duration']
+                distance_est = exact.get('distance', 18)
+            else:
+                # Step 2: use real per-km rate from city-specific dataset
+                if distance_est is None:
+                    distance_est = 18
+                # Detect city from source/dest string
+                city = None
+                for loc in [source, dest]:
+                    if 'Delhi' in str(loc):
+                        city = 'Delhi'; break
+                    if 'Bangalore' in str(loc):
+                        city = 'Bangalore'; break
+                if city and city in self.city_cab_stats:
+                    rate = self.city_cab_stats[city]
+                    price    = distance_est * rate['price_per_km']
+                    duration = distance_est * rate['min_per_km']
+                else:
+                    # Generic fallback if city not in dataset
+                    price    = distance_est * 14.0
+                    duration = distance_est * 4.0
         else:
             # Intercity: look up real dataset values for this exact route pair
             stats        = self._route_stats(trans_type, source, dest)
@@ -358,9 +391,10 @@ class RouteRecommender:
             score = -speed_rank * 1e6 - total_duration
 
         elif preference == 'Economical':
-            # Best price-per-minute ratio: Train usually wins
-            ppm = total_price / max(total_duration, 1)
-            score = -ppm * 1e4 - cost_rank * 500
+            # Train is the economical backbone of Indian intercity travel.
+            # Strongly prefer Train, then Bus, then Cab, then Flight.
+            econ_rank = {'Train': 1, 'Bus': 2, 'Cab': 3, 'Flight': 4}.get(primary_trans, 4)
+            score = -econ_rank * 1e6 - total_price
 
         elif preference == 'Balanced':
             # Composite of cost, time, comfort with equal weights

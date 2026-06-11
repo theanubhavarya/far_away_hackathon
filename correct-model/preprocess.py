@@ -264,7 +264,28 @@ def load_and_preprocess(data_dir="d:/far away data set/ml model"):
     transport_stats.to_csv(os.path.join(artifacts_dir, 'transport_stats.csv'), index=False)
     print("Transport-type fallback stats saved.")
     print(transport_stats.to_string())
+
+    # 3. City-specific cab pricing stats from actual Uber/Ola dataset
+    # These give the REAL per-km price and speed for each city
+    cab_raw = raw_df[raw_df['Transport_Type'] == 'Cab'].copy()
+    cab_raw['City'] = cab_raw['Source'].apply(
+        lambda x: 'Delhi' if '(Delhi)' in str(x) else ('Bangalore' if '(Bangalore)' in str(x) else None)
+    )
+    cab_raw = cab_raw.dropna(subset=['City'])
+    cab_raw = cab_raw[cab_raw['Distance'] > 0.5]
+
+    city_cab_stats = cab_raw.groupby('City').apply(lambda g: pd.Series({
+        'price_per_km': (g['Price'] / g['Distance']).median(),
+        'min_per_km':   (g['Duration'] / g['Distance']).median(),
+        'median_price':    g['Price'].median(),
+        'median_distance': g['Distance'].median(),
+        'median_duration': g['Duration'].median(),
+    })).reset_index()
+    city_cab_stats.to_csv(os.path.join(artifacts_dir, 'city_cab_stats.csv'), index=False)
+    print("City cab stats saved (actual dataset per-km rates):")
+    print(city_cab_stats.to_string())
     print("Preprocessing complete. Data and artifacts saved in", artifacts_dir)
+
 
 if __name__ == "__main__":
     load_and_preprocess()
