@@ -36,14 +36,6 @@ venv/
 env/
 .env/
 
-# Large files and datasets
-*.pth
-*.pkl
-*.csv
-backend/artifacts/
-backend/datasets/
-artifacts/
-
 # Logs
 *.log
 backend-dev.log
