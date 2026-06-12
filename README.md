@@ -1,6 +1,6 @@
 # Yatri AI
 
-This is the consolidated project repository containing both the frontend and backend of the Plan2Go application.
+This is the consolidated project repository containing both the frontend and backend of the Yatri AI application.
 
 ## Repository Structure
 
